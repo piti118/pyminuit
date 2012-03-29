@@ -40,58 +40,58 @@
 #endif
 
 class ExceptionDuringMinimization {
-   public:
-      ExceptionDuringMinimization() {}
-      ~ExceptionDuringMinimization() {}
+public:
+    ExceptionDuringMinimization() {}
+    ~ExceptionDuringMinimization() {}
 };
 
 class MyFCN: public FCNBase {
-   public:
-      MyFCN(PyObject *fcn, PyObject *self, int npar): m_fcn(fcn), m_self(self), m_npar(npar) { };
-      double operator()(const std::vector<double>& par) const;
+public:
+    MyFCN(PyObject *fcn, PyObject *self, int npar): m_fcn(fcn), m_self(self), m_npar(npar) { };
+    double operator()(const std::vector<double>& par) const;
 
-      double up() const { return m_up; }
-      void setUp(double up) { m_up = up; }
-      void setPrintMode(int printMode) { m_printMode = printMode; }
-      void setOriginal(std::vector<double> par) { m_original = par; }
+    double up() const { return m_up; }
+    void setUp(double up) { m_up = up; }
+    void setPrintMode(int printMode) { m_printMode = printMode; }
+    void setOriginal(std::vector<double> par) { m_original = par; }
       
-   private:
-      PyObject *m_fcn;
-      PyObject *m_self;
-      int m_npar;
-      double m_up;
-      int m_printMode;
-      std::vector<double> m_original;
+private:
+    PyObject *m_fcn;
+    PyObject *m_self;
+    int m_npar;
+    double m_up;
+    int m_printMode;
+    std::vector<double> m_original;
 };
 
 typedef struct {
-      PyObject_HEAD
+        PyObject_HEAD
 
-      MyFCN *myfcn;
-      MnUserParameters *upar;
-      FunctionMinimum *min;
-      int scandepth;
+    MyFCN *myfcn;
+    MnUserParameters *upar;
+    FunctionMinimum *min;
+    int scandepth;
 
-      int npar;
-      PyObject *maxcalls;
-      double tol;
-      int strategy;
-      double up;
-      int printMode;
-      PyObject *fixed;
-      PyObject *limits;
-      PyObject *values;
-      PyObject *args;
-      PyObject *errors;
-      PyObject *merrors;
-      PyObject *covariance;
+    int npar;
+    PyObject *maxcalls;
+    double tol;
+    int strategy;
+    double up;
+    int printMode;
+    PyObject *fixed;
+    PyObject *limits;
+    PyObject *values;
+    PyObject *args;
+    PyObject *errors;
+    PyObject *merrors;
+    PyObject *covariance;
 
-      PyObject *fcn;
-      PyObject *self;
-      PyObject *fval;
-      int ncalls;
-      PyObject *edm;
-      PyObject *parameters;
+    PyObject *fcn;
+    PyObject *self;
+    PyObject *fval;
+    int ncalls;
+    PyObject *edm;
+    PyObject *parameters;
 } minuit_Minuit;
 
 static int minuit_Minuit_init(minuit_Minuit* self, PyObject* args, PyObject* kwds);
