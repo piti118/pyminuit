@@ -191,76 +191,66 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
     self->fcn = function;
     Py_INCREF(self->fcn);
     
-    //if user passes a bounded method as an argument
-    //check if _fit_param (no self parameter listed) 
-    //attribute exists if it does then we use that attribute as 
-    //parameters and skip auto contruction of  co_varnames and co_argcount
-    //this allow method with like __call__(self,*arg) to be pass
-    //useful for wrapping functions around Maximum Likelihood etc.
-    PyObject* override_parameters = NULL;
-    if(self->self!=NULL){
-        override_parameters = PyObject_GetAttrString(self->self,"_fit_param");
-        if(override_parameters!=NULL){
-            if(PyTuple_Check(override_parameters)){
-                self->parameters = override_parameters;
-            }else{
-                PyErr_SetString(PyExc_TypeError, "__fit_param must be tuple of string");
-            }
-        }else{
-            //do nothing
-        }
+    //more generous construction of parameters by checking func_code attribute on
+    //self first if it fails then fall back to old method this is similar to inspect behavior
+  
+    PyObject* func_code=NULL;
+    if(self->self && PyObject_HasAttrString(self->self,"func_code")){
+        func_code = PyObject_GetAttrString(self->self,"func_code");  
+    }else{
+        func_code = PyFunction_GetCode(self->fcn);
+    }
+    if (func_code == NULL) {
+        return -1;
     }
     
-    //no override self->parameters
-    //auto-construct self->parameters
-    if(self->parameters==NULL){
-        PyObject *func_code = PyFunction_GetCode(self->fcn);
-        if (func_code == NULL) {
-            return -1;
-        }
-        PyObject *co_varnames = PyObject_GetAttrString(func_code, "co_varnames");
-        if (co_varnames == NULL) {
-          return -1;
-        }
-        PyObject *co_argcount = PyObject_GetAttrString(func_code, "co_argcount");
-        if (co_argcount == NULL) {
-            //Py_DECREF(func_code);
-            Py_DECREF(co_varnames);
-            return -1;
-        }
-        if (!PyTuple_Check(co_varnames)) {
-            PyErr_SetString(PyExc_TypeError, "function.func_code.co_varnames must be a tuple.");
-            Py_DECREF(co_varnames);
-            Py_DECREF(co_argcount);
-            return -1;
-        }
-        if (!PyInt_Check(co_argcount)) {
-            PyErr_SetString(PyExc_TypeError, "function.func_code.co_argcount must be an integer.");
-            Py_DECREF(co_varnames);
-            Py_DECREF(co_argcount);
-            return -1;
-        }
+    PyObject* co_varnames = PyObject_GetAttrString(func_code, "co_varnames");
+    if (co_varnames == NULL) {
+        return -1;
+    }
+    PyObject* co_argcount = PyObject_GetAttrString(func_code, "co_argcount");
+    if (co_argcount == NULL) {
+        //Py_DECREF(func_code);
+        Py_DECREF(co_varnames);
+        return -1;
+    }
 
-        if (PyInt_AsLong(co_argcount) < 1) {
-            PyErr_SetString(PyExc_TypeError, "This function has no parameters to minimize.");
-            Py_DECREF(co_varnames);
-            Py_DECREF(co_argcount);
-            return -1;
-        }
-
-        // ensure that self->parameters does not contain self method parameter
-        if (self->self){
-            self->parameters = PyTuple_GetSlice(co_varnames, 1, PyInt_AsLong(co_argcount));
-        }
-        else{
-            self->parameters = PyTuple_GetSlice(co_varnames, 0, PyInt_AsLong(co_argcount));
-        }
+    if (!PyTuple_Check(co_varnames)) {
+        PyErr_SetString(PyExc_TypeError, "function.func_code.co_varnames must be a tuple.");
         Py_DECREF(co_varnames);
         Py_DECREF(co_argcount);
+        return -1;
     }
+    if (!PyInt_Check(co_argcount)) {
+        PyErr_SetString(PyExc_TypeError, "function.func_code.co_argcount must be an integer.");
+        Py_DECREF(co_varnames);
+        Py_DECREF(co_argcount);
+        return -1;
+    }
+
+    if (PyInt_AsLong(co_argcount) < 1) {
+        PyErr_SetString(PyExc_TypeError, "This function has no parameters to minimize.");
+        Py_DECREF(co_varnames);
+        Py_DECREF(co_argcount);
+        return -1;
+    }
+
+    // ensure that self->parameters does not contain self method parameter
+    if (self->self){
+        self->parameters = PyTuple_GetSlice(co_varnames, 1, PyInt_AsLong(co_argcount));
+    }
+    else{
+        self->parameters = PyTuple_GetSlice(co_varnames, 0, PyInt_AsLong(co_argcount));
+    }
+    Py_DECREF(co_varnames);
+    Py_DECREF(co_argcount);
 
 
     self->npar = PyTuple_Size(self->parameters);
+    if (self->npar < 1) {
+        PyErr_SetString(PyExc_TypeError, "This function has no parameters to minimize.");
+        return -1;
+    }
     self->maxcalls = Py_BuildValue("O", Py_None);
     self->tol = 0.1;
     self->strategy = 1;
@@ -567,7 +557,7 @@ bool minuit_prepare(minuit_Minuit *self, int &maxcalls, std::vector<std::string>
 	        return false;
         }
     }
-
+    
     if (nfixed >= self->npar) {
         PyErr_SetString(PyExc_RuntimeError, "Can't minimize if all parameters are fixed.");
         return false;
