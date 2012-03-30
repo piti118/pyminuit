@@ -20,7 +20,10 @@
 
 #include "minuit.h"
 #include <iostream>
-
+#include <iomanip>
+#define PYMDEBUG(x) std::cerr << __FILE__ << "("<< __LINE__ << "):" << #x << " = " << x << std::endl
+#define PYMADDR(x) std::cerr << __FILE__ << "("<< __LINE__ << "):" << #x << " = " << std::hex << (long)x << std::dec << std::endl
+#define PYMHERE std::cerr << __FILE__ << "(" << __LINE__ << "): HERE" << std::endl
 /*
  * PyVarObject_HEAD_INIT was added in Python 2.6.  Its use is
  * necessary to handle both Python 2 and 3.  This replacement
@@ -177,15 +180,29 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
     }
     else {
         // __call__ has to exist because we checked that the object is callable
+        PyObject* old_arg=arg;
         arg = PyObject_GetAttrString(arg,"__call__");
-        function = PyMethod_Function(arg);
-        self->self = PyMethod_Self(arg);
-        if (!self->self){
-            PyErr_SetString(PyExc_TypeError, "Unbound methods are not supported.");
-            return -1;
+        
+        if(!PyMethod_Check(arg)){
+            //this is a method wrapper like ([].__str__) or something from cython
+            //fcn and self are actually the same
+            //it's callable and we just need self to provide necessary information about
+            //arguments
+            self->self = old_arg;
+            function = old_arg;
         }
+        else{
+            //a real python method
+            function = PyMethod_Function(arg);
+            self->self = PyMethod_Self(arg);
+            if (!self->self){
+                PyErr_SetString(PyExc_TypeError, "Unbound methods are not supported.");
+                return -1;
+            }
+        }
+        Py_INCREF(self->self);        
         Py_DECREF(arg);
-        Py_INCREF(self->self);
+
     }
 
     self->fcn = function;
@@ -195,6 +212,7 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
     //self first if it fails then fall back to old method this is similar to inspect behavior
   
     PyObject* func_code=NULL;
+    PYMDEBUG(PyObject_HasAttrString(self->self,"func_code"));
     if(self->self && PyObject_HasAttrString(self->self,"func_code")){
         func_code = PyObject_GetAttrString(self->self,"func_code");  
     }else{
@@ -271,7 +289,6 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
 
     Py_DECREF(self->args);
     self->args = PyTuple_New(self->npar);
-
     for (int i = 0;  i < self->npar;  i++) {
         PyObject *param = PyTuple_GetItem(self->parameters, i);
         if (!PyString_Check(param)) {
@@ -385,11 +402,9 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
 
         self->upar->add(PyString_AsString(param), value, error);
     }
-   
     self->myfcn = new MyFCN(self->fcn, self->self, self->npar);
     self->myfcn->setUp(self->up);
     self->myfcn->setPrintMode(self->printMode);
-
     return 0;
 }
 
@@ -423,7 +438,6 @@ static int minuit_Minuit_dealloc(minuit_Minuit *self) {
 
 bool minuit_prepare(minuit_Minuit *self, int &maxcalls, std::vector<std::string> &floating) {
     maxcalls = 0;
-
     if (self->maxcalls == Py_None) { /* 0 means no limit */ }
     else if (PyInt_Check(self->maxcalls)) {
         maxcalls = int(PyInt_AsLong(self->maxcalls));
@@ -476,7 +490,6 @@ bool minuit_prepare(minuit_Minuit *self, int &maxcalls, std::vector<std::string>
         PyErr_SetString(PyExc_TypeError, "limits must be a dictionary.");
         return false;
     }
-
     int nfixed = 0;
     floating.clear();
     for (int i = 0;  i < self->npar;  i++) {
@@ -1494,7 +1507,7 @@ static PyObject* minuit_Minuit_matrix(minuit_Minuit* self, PyObject* args, PyObj
 
 double MyFCN::operator()(const std::vector<double>& par) const {
     int argsize = m_npar;
-    if (m_self){
+    if (m_self && m_self!=m_fcn){//screen out method-wrapper
         ++argsize;
     }
     PyObject *args = PyTuple_New(argsize);
@@ -1504,7 +1517,7 @@ double MyFCN::operator()(const std::vector<double>& par) const {
 
     int i = 0;
     std::vector<double>::const_iterator pend = par.end();
-    if (m_self){
+    if (m_self && m_self!=m_fcn){
         PyTuple_SetItem(args, i, m_self);
         ++i;
     }
