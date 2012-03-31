@@ -34,5 +34,6 @@ setup(name="pyMinuit",
                              [os.path.join("minuit.cpp")],
                              library_dirs=[os.path.join(minuitdir, "src", ".libs")],
                              libraries=["lcg_Minuit"],
-                             include_dirs=[minuitdir]
+                             include_dirs=[minuitdir],
+                             extra_compile_args=['-Wno-write-strings']
                              )])

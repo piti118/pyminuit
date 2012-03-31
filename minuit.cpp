@@ -141,7 +141,6 @@ static PyTypeObject minuit_MinuitType = {
 };
 
 static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwds) {
-
     self->myfcn = NULL;
     self->upar = NULL;
     self->min = NULL;
@@ -165,11 +164,22 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
         return -1;
     }
 
-    PyObject *function = NULL;
+    PyObject* function = NULL;
+    //__call__ function fall back if function fails to give signature
+    PyObject* call_function = NULL;
     if (PyFunction_Check(arg)){
+        //def f(x,y):
+        //  return x**2+y**2
+        
         function = arg;
+        Py_INCREF(function);
     }
     else if (PyMethod_Check(arg)){
+        //class sometype:
+        //  def a(self,x,y)
+        //      return x**2+y**2
+        // a = sometype()
+        // Minuit(a) #a's signature will include self
         function = PyMethod_Function(arg);
         self->self = PyMethod_Self(arg);
         if (!self->self){
@@ -177,50 +187,78 @@ static int minuit_Minuit_init(minuit_Minuit *self, PyObject *args, PyObject *kwd
             return -1;
         }
         Py_INCREF(self->self);
+        Py_INCREF(function);
     }
     else {
         // __call__ has to exist because we checked that the object is callable
-        PyObject* old_arg=arg;
-        arg = PyObject_GetAttrString(arg,"__call__");
+        call_function = PyObject_GetAttrString(arg,"__call__");
         
-        if(!PyMethod_Check(arg)){
-            //this is a method wrapper like ([].__str__) or something from cython
+        if(!PyMethod_Check(call_function)){
+            //this is a method wrapper like ([].__str__) or ones from cython
             //fcn and self are actually the same
             //it's callable and we just need self to provide necessary information about
             //arguments
-            self->self = old_arg;
-            function = old_arg;
+            ///o.__call__.__class__.__name__ == "method-wrapper"
+            //while the unbounded one
+            //SOMETYPE.__call__.__class__.__name__ = wrapper_descriptor
+            
+            //check __call__.__class__.__name
+            bool ok = false;
+            if(PyObject_HasAttrString(call_function,"__class__")){
+                PyObject* cls = PyObject_GetAttrString(call_function,"__class__");
+                if(PyObject_HasAttrString(cls,"__name__")){
+                    PyObject* name = PyObject_GetAttrString(cls,"__name__");
+                    char* s = PyString_AsString(name);
+                    if(s!=NULL && strncmp( s, "method-wrapper", 20 )==0){
+                        ok=true;
+                    }
+                    Py_XDECREF(name);
+                }
+                Py_XDECREF(cls);
+            }
+            if(!ok){PyErr_SetString(PyExc_TypeError, "Unknown callable type");return -1;}
+            self->self = NULL;//we don't need self
+            function = arg;
+            call_function=NULL;//we don't need __call__ it's doesn't have func_code anyway
+            Py_INCREF(function);
         }
         else{
-            //a real python method
-            function = PyMethod_Function(arg);
-            self->self = PyMethod_Self(arg);
-            if (!self->self){
-                PyErr_SetString(PyExc_TypeError, "Unbound methods are not supported.");
+            //a real python method user may provide additional func_code
+            //so lets find func_code first other wise
+            //class xxx:
+            //  def __call__(self,x,y):
+            //      return x**2+y**2
+            //m = minuit.Minuit(xxx)
+            self->self = NULL;//self will be needed only if we need to fall back to call function
+            function = arg;
+            if (!PyMethod_Self(call_function)){
+                PyErr_SetString(PyExc_TypeError, "Unbound __call__ are not supported.");
                 return -1;
             }
-        }
-        Py_INCREF(self->self);        
-        Py_DECREF(arg);
-
+            Py_INCREF(function);
+        }      
     }
 
     self->fcn = function;
     Py_INCREF(self->fcn);
-    
-    //more generous construction of parameters by checking func_code attribute on
-    //self first if it fails then fall back to old method this is similar to inspect behavior
-  
+
     PyObject* func_code=NULL;
-    PYMDEBUG(PyObject_HasAttrString(self->self,"func_code"));
-    if(self->self && PyObject_HasAttrString(self->self,"func_code")){
-        func_code = PyObject_GetAttrString(self->self,"func_code");  
-    }else{
-        func_code = PyFunction_GetCode(self->fcn);
+    
+    //look at func code from function if it fails then fall back to get __call__ signature and set self
+    func_code = PyObject_GetAttrString(function,"func_code"); 
+    if (func_code == NULL){
+        if(call_function!=NULL){
+            //we already check self exists
+            func_code = PyObject_GetAttrString(self->self,"func_code");
+            self->self = PyMethod_Self(call_function);
+            if(func_code==NULL){
+                PyErr_SetString(PyExc_TypeError,"Cannot extract function signature from argument");
+                return -1;
+            }
+        }
     }
-    if (func_code == NULL) {
-        return -1;
-    }
+    Py_DECREF(function);
+    Py_XDECREF(call_function);
     
     PyObject* co_varnames = PyObject_GetAttrString(func_code, "co_varnames");
     if (co_varnames == NULL) {
@@ -1507,7 +1545,7 @@ static PyObject* minuit_Minuit_matrix(minuit_Minuit* self, PyObject* args, PyObj
 
 double MyFCN::operator()(const std::vector<double>& par) const {
     int argsize = m_npar;
-    if (m_self && m_self!=m_fcn){//screen out method-wrapper
+    if (m_self){//screen out method-wrapper
         ++argsize;
     }
     PyObject *args = PyTuple_New(argsize);
@@ -1517,7 +1555,7 @@ double MyFCN::operator()(const std::vector<double>& par) const {
 
     int i = 0;
     std::vector<double>::const_iterator pend = par.end();
-    if (m_self && m_self!=m_fcn){
+    if (m_self){
         PyTuple_SetItem(args, i, m_self);
         ++i;
     }

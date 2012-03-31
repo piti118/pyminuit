@@ -65,7 +65,7 @@ private:
 };
 
 typedef struct {
-        PyObject_HEAD
+    PyObject_HEAD
 
     MyFCN *myfcn;
     MnUserParameters *upar;
