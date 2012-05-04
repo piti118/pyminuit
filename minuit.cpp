@@ -1038,20 +1038,24 @@ static PyObject *minuit_Minuit_hesse(minuit_Minuit *self) {
 
 static PyObject *minuit_Minuit_minos(minuit_Minuit *self, PyObject *args) {
     if (args == NULL  ||  PyTuple_Size(args) == 0) {
-        for (int i = 0;  i < self->npar;  i++) {
-	        PyObject *subargs = Py_BuildValue("Od", PyTuple_GetItem(self->parameters, i), -1.);
-	        if (minuit_Minuit_minos(self, subargs) == NULL) {
-	            Py_DECREF(subargs);
-	            return NULL;
-	        }
-	        Py_DECREF(subargs);
+        for (int i = 0;  i < self->npar;  i++) {	        
+	        PyObject *var = PyTuple_GetItem(self->parameters, i);
+            PyObject *isfixed = PyDict_GetItem(self->fixed, var);
+            if(isfixed != Py_True){            
+    	        PyObject *subargs = Py_BuildValue("Od", PyTuple_GetItem(self->parameters, i), -1.);
+    	        if (minuit_Minuit_minos(self, subargs) == NULL) {
+    	            Py_DECREF(subargs);
+    	            return NULL;
+    	        }
+    	        Py_DECREF(subargs);
 
-            subargs = Py_BuildValue("Od", PyTuple_GetItem(self->parameters, i), 1.);
-	        if (minuit_Minuit_minos(self, subargs) == NULL) {
-	            Py_DECREF(subargs);
-	            return NULL;
-	        }
-	        Py_DECREF(subargs);
+                subargs = Py_BuildValue("Od", PyTuple_GetItem(self->parameters, i), 1.);
+    	        if (minuit_Minuit_minos(self, subargs) == NULL) {
+    	            Py_DECREF(subargs);
+    	            return NULL;
+    	        }
+    	        Py_DECREF(subargs);
+            }
         }
 
         return Py_BuildValue("O", Py_None);
